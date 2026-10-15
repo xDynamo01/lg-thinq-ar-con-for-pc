@@ -1,0 +1,22 @@
+name: Windows build
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: Publish
+        run: dotnet publish src -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o dist
+      - name: Offline checks
+        shell: pwsh
+        run: |
+          $result = Start-Process .\dist\ThinQDesktop.exe -ArgumentList '--self-test' -PassThru -Wait
+          if ($result.ExitCode -ne 0) { throw 'Self-test process failed' }
+          $report = Get-Content .\dist\tests.txt -Raw
+          Write-Output $report
+          if ($report -notmatch '^PASS:') { throw 'Self-test failed' }

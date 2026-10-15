@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType><TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <AssemblyName>ThinQDesktop</AssemblyName><ApplicationIcon>Assets\clima.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup><PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.10" /></ItemGroup>
+  <ItemGroup><Using Remove="System.Windows.Forms"/><Using Remove="System.Drawing"/></ItemGroup><ItemGroup><EmbeddedResource Include="Assets\clima.ico" LogicalName="Clima.TrayIcon"/><Resource Include="Assets\clima.png"/></ItemGroup></Project>
+
+
