@@ -19,7 +19,7 @@ public partial class MainWindow : Window
     bool busy, fresh, recovering, closed, recoveryBlocked;
     readonly List<Button> choices = new();
     readonly System.Windows.Threading.DispatcherTimer stateTimer=new(){Interval=TimeSpan.FromSeconds(30)};
-    bool polling; long stateVersion; DateTimeOffset lastRead;
+    bool polling, stateStale; long stateVersion; DateTimeOffset lastRead;
     event Action? StateUpdated;
     static readonly CultureInfo Pt = CultureInfo.GetCultureInfo("pt-BR");
     static Brush Color(string hex) => new SolidColorBrush((System.Windows.Media.Color)ColorConverter.ConvertFromString(hex));
@@ -79,7 +79,7 @@ public partial class MainWindow : Window
     {
         if (busy) return; stateVersion++; busy = true; SetEnabled();
         try { await action(); if(fresh)recoveryBlocked=false; }
-        catch (Exception e) { fresh = false; ConnectionLabel.Text = "●  Leitura indisponível"; StatusText.Text = e.Message; StatusText.Foreground = Color("#F2B387"); LogConnectionFailure(e); recoveryBlocked=!CanRecover(e); if(!recoveryBlocked) _=RecoverConnection(); }
+        catch (Exception e) { if(state is not null && active is not null && CanRecover(e)) { stateStale=true; fresh=true; ConnectionLabel.Text="●  Última leitura · tentando atualizar"; StatusText.Text="A leitura demorou. O último estado continua disponível."; } else { fresh=false; ConnectionLabel.Text = "●  Leitura indisponível"; StatusText.Text = e.Message; StatusText.Foreground = Color("#F2B387"); } LogConnectionFailure(e); recoveryBlocked=!CanRecover(e); if(!recoveryBlocked) _=RecoverConnection(); }
         finally { busy = false; SetEnabled(); }
     }
     internal static bool CanRecover(Exception e) => e is not ThinQApiException { StatusCode: 401 or 403 or 429 };
@@ -90,7 +90,7 @@ public partial class MainWindow : Window
         if(recovering || closed)return; recovering=true;
         try { foreach(int seconds in new[]{5,15,30}) {
             await Task.Delay(TimeSpan.FromSeconds(seconds));
-            if(closed || fresh || recoveryBlocked)return; if(busy)continue;
+            if(closed || !stateStale || recoveryBlocked)return; if(busy)continue;
             try { if(AccountStore.Load() is null)return; } catch { return; }
             ConnectionLabel.Text="●  Reconectando…";
             await Run(Refresh);
@@ -118,7 +118,7 @@ public partial class MainWindow : Window
     async Task Connect(string token, string country)
     {
         StatusText.Text = "Conectando à sua conta LG…";
-        client?.Dispose(); client = null; active = null; state = profile = null; fresh = false; capabilities.Clear(); RenderEmpty();
+        client?.Dispose(); client = null; active = null; state = profile = null; fresh = false; stateStale=false; capabilities.Clear(); RenderEmpty();
         var candidate = new ThinQClient(token,country);
         try {
             available = Device.Parse(await candidate.Get("devices"));
@@ -129,12 +129,12 @@ public partial class MainWindow : Window
     }
     async Task Load(Device device)
     {
-        active = null; fresh = false; state = profile = null; capabilities.Clear(); RenderEmpty();
+        active = null; fresh = false; stateStale=false; state = profile = null; capabilities.Clear(); RenderEmpty();
         var id = Uri.EscapeDataString(device.Id);
         var p = await client!.Get($"devices/{id}/profile");
         var s = await client.Get($"devices/{id}/state");
         if (s is not JsonObject) throw new Exception("O aparelho não retornou um estado válido. Tente atualizar.");
-        active = device; profile = p; state = s; capabilities = Capabilities.Read(profile).ToList(); fresh = true; lastRead=DateTimeOffset.UtcNow; Render();
+        active = device; profile = p; state = s; capabilities = Capabilities.Read(profile).ToList(); fresh = true; stateStale=false; lastRead=DateTimeOffset.UtcNow; Render();
     }
     async Task PollState()
     {
@@ -144,10 +144,13 @@ public partial class MainWindow : Window
             var response=await api.Get($"devices/{Uri.EscapeDataString(device.Id)}/state");
             if(closed || busy || version!=stateVersion || active!=device)return;
             if(response is not JsonObject)throw new Exception("A LG não retornou um estado válido.");
-            state=response;fresh=true;lastRead=DateTimeOffset.UtcNow;Render();
+            state=response;fresh=true;stateStale=false;lastRead=DateTimeOffset.UtcNow;Render();
         } catch(Exception e) {
             if(closed || busy || version!=stateVersion)return;
-            fresh=false;ConnectionLabel.Text="● Leitura indisponível";StatusText.Text="Última leitura desatualizada. "+e.Message;LogConnectionFailure(e);recoveryBlocked=!CanRecover(e);SetEnabled();if(!recoveryBlocked)_=RecoverConnection();
+            // A transient cloud/network error must not erase the last valid
+            // state or disable every control. Keep the device usable while a
+            // background read retries; only auth errors are terminal.
+            stateStale=true;ConnectionLabel.Text="●  Última leitura · tentando atualizar";StatusText.Text="A leitura demorou. O último estado continua disponível.";LogConnectionFailure(e);recoveryBlocked=!CanRecover(e);SetEnabled();if(!recoveryBlocked)_=RecoverConnection();
         } finally {polling=false;}
     }
     async Task Refresh()
@@ -158,7 +161,7 @@ public partial class MainWindow : Window
         }
         var response = await client.Get($"devices/{Uri.EscapeDataString(active.Id)}/state");
         if (response is not JsonObject) throw new Exception("Leitura indisponível. Os dados exibidos são da última atualização.");
-        state = response; fresh = true; lastRead=DateTimeOffset.UtcNow; Render();
+        state = response; fresh = true; stateStale=false; lastRead=DateTimeOffset.UtcNow; Render();
     }
     void RenderEmpty()
     {
