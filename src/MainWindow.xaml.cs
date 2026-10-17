@@ -90,7 +90,9 @@ public partial class MainWindow : Window
         if(recovering || closed)return; recovering=true;
         try { foreach(int seconds in new[]{5,15,30}) {
             await Task.Delay(TimeSpan.FromSeconds(seconds));
-            if(closed || !stateStale || recoveryBlocked)return; if(busy)continue;
+            // During Windows login there is no active device yet. In that
+            // case retry the initial connection using the protected token.
+            if(closed || (active is not null && !stateStale) || recoveryBlocked)return; if(busy)continue;
             try { if(AccountStore.Load() is null)return; } catch { return; }
             ConnectionLabel.Text="●  Reconectando…";
             await Run(Refresh);
