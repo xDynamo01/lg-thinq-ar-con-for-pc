@@ -214,12 +214,23 @@ public partial class MainWindow : Window
     async Task Send(Capability cap, string value)
     {
         if (client is null || active is null || !fresh) throw new Exception("Atualize a conexão antes de enviar um comando.");
+        LogCommand(cap, value);
         StatusText.Foreground = Color("#FFCA85"); StatusText.Text = "Enviando comando…";
         var result = await ControlFlow.SendAndConfirm(client,active.Id,cap,value);
         state = result.State; fresh = result.State is not null;
         if (fresh) Render();
         StatusText.Text = result.Confirmed ? "✓  Alteração confirmada pelo aparelho." : "Comando aceito pela LG; confirmação ainda pendente. Clique em Atualizar.";
         StatusText.Foreground = Color(result.Confirmed ? "#8CE3BA" : "#FFCA85");
+    }
+    static void LogCommand(Capability cap, string value)
+    {
+        try {
+            var folder=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"ThinQDesktop");
+            Directory.CreateDirectory(folder);
+            var path=Path.Combine(folder,"commands.log");
+            if(File.Exists(path)&&new FileInfo(path).Length>32768)File.WriteAllText(path,"");
+            File.AppendAllText(path,$"{DateTimeOffset.Now:O} user-action {cap.Resource}.{cap.Field}={value}{Environment.NewLine}");
+        } catch { }
     }
     async void FanMinusClick(object s,RoutedEventArgs e) => await Run(() => Send(Find("airFlow","windStep")!, (Number("airFlow","windStep")!.Value - 1).ToString(CultureInfo.InvariantCulture)));
     async void FanPlusClick(object s,RoutedEventArgs e) => await Run(() => Send(Find("airFlow","windStep")!, (Number("airFlow","windStep")!.Value + 1).ToString(CultureInfo.InvariantCulture)));
